@@ -1,4 +1,3 @@
-import os
 import socket
 import threading
 from time import sleep
@@ -28,7 +27,7 @@ def handle(client):
 
     def opponent_valid(cl):
         op = session_info[cl]['opponent']
-        if op.fileno == -1:
+        if op.fileno() == -1:
             clients[cl]['state'] = 4
             del session_info[cl]
             del session_info[op]
@@ -38,31 +37,52 @@ def handle(client):
         return op
 
     while True:
-        if client.fileno == -1:  # Соединение разорвано
-            print(f'Connection closed with client {client}')
-            return
-
         if client not in clients:  # Клиент не аутентифицирован
-            client.send('nickname'.encode('ascii'))
-
-            nickname = client.recv(1024).decode('ascii')
-            if not nickname:
-                print(f'Connection closed with client {client}')
+            try:
+                nickname = client.recv(1024)
+            except ConnectionAbortedError:
+                print('Connection aborted')
+                client.close()
                 return
 
-            if len(nickname) == 0:
-                client.send('invalid'.encode('ascii'))
+            try:
+                nickname = nickname.decode('ascii')
+            except UnicodeDecodeError:
+                try:
+                    client.send('invalid_characters'.encode('ascii'))
+                except ConnectionRefusedError:
+                    print('Connection refused')
+                    client.close()
+                    return
                 continue
-            client.send('valid'.encode('ascii'))
+
+            if len(nickname) == 0:
+                try:
+                    client.send('invalid_empty'.encode('ascii'))
+                except ConnectionRefusedError:
+                    print('Connection refused')
+                    return
+                continue
 
             with client_init_lock:
-                clients[client] = {'nickname': nickname, 'state': 0}
-                free_players.append(client)
+                if nickname in [c['nickname'] for c in clients.values()]:
+                    try:
+                        client.send('invalid_taken')
+                    except ConnectionRefusedError:
+                        print('Connection refused')
+                        return
+                    continue
+                clients[client] = {'nickname': nickname, 'state': 4}
+            try:
+                client.send('valid_nickname'.encode('ascii'))
+            except ConnectionRefusedError:
+                print('Connection refused')
+                del clients[client]
+                return
 
             print("Nickname is {}".format(nickname))
 
-        if clients[client]['state'] == 0:  # Клиент еще не в сессии
-            client.send('search'.encode('ascii'))
+        if clients[client]['state'] == 0:  # Поиск игры
             while True:
                 sleep(1)
                 with searching_lock:
@@ -83,32 +103,56 @@ def handle(client):
 
                             clients[client]['state'] = 1
                             clients[opponent]['state'] = 1
+
+                            try:
+                                client.send('game'.encode('ascii'))
+                            except ConnectionRefusedError:
+                                print('Connection refused cln')
+                            try:
+                                opponent.send('game'.encode('ascii'))
+                            except ConnectionRefusedError:
+                                print('Connection refused opp')
+
+                            client.send(clients[opponent]['nickname'].encode('ascii'))
+                            opponent.send(clients[client]['nickname'].encode('ascii'))
                             break
 
         if clients[client]['state'] == 1:  # Загадывание числа
-            client.send('guess'.encode('ascii'))
             while True:
                 with code_lock:
                     if client.fileno == -1 or clients[client]['state'] != 1:
                         break
 
+                    number = client.recv(1024)
+
                     opponent = opponent_valid(client)
                     if not isinstance(opponent, socket.socket):
+                        client.send('invalid_opponent'.encode('ascii'))
+                        clients[client]['state'] = 4
                         break
 
-                    if 'code' not in session_info[client]:
-                        number = client.recv(1024).decode('ascii')
-                        if not number:
-                            break
-                        if not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
-                            client.send('invalid'.encode('ascii'))
-                            continue
-                        client.send('valid'.encode('ascii'))
+                    if number is False or number is None:
+                        break
+                    try:
+                        number = number.decode('ascii')
+                    except UnicodeDecodeError:
+                        client.send('invalid_characters'.encode('ascii'))
+                        continue
 
-                        session_info[client]['code'] = number
+                    if not number:
+                        client.send('invalid_length'.encode('ascii'))
+                        continue
+
+                    if not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
+                        client.send('invalid_code'.encode('ascii'))
+                        continue
+
+                    client.send('valid_wish'.encode('ascii'))
+
+                    session_info[client]['code'] = number
+                    clients[client]['state'] = 2
 
         if clients[client]['state'] == 2:  # Ожидание загадывания числа от опонента и определение первого угадывающего
-            client.send('wait'.encode('ascii'))
             while True:
                 with wait_lock:
                     if client.fileno == -1 or clients[client]['state'] != 2:
@@ -116,6 +160,8 @@ def handle(client):
 
                     opponent = opponent_valid(client)
                     if not isinstance(opponent, socket.socket):
+                        client.send('invalid_opponent'.encode('ascii'))
+                        clients[client]['state'] = 4
                         break
 
                     opponent_info = session_info[opponent]
@@ -130,31 +176,45 @@ def handle(client):
 
                             clients[client]['state'] = 3
                             clients[opponent]['state'] = 3
+
+                            order[0].send('first'.encode('ascii'))
+                            order[1].send('second'.encode('ascii'))
                         break
         elif clients[client]['state'] == 3:  # Игра началась
-            client.send('start'.encode('ascii'))
             while True:
                 with game_lock:
                     if client.fileno == -1 or clients[client]['state'] != 3:
                         break
 
-                    opponent = opponent_valid(client)
-                    if not isinstance(opponent, socket.socket):
-                        break
-
-                    opponent_info = session_info[opponent]
                     client_info = session_info[client]
 
                     if not client_info['guessing']:
                         continue
 
-                    client.send('guess'.encode('ascii'))
-                    number = client.recv(1024).decode('ascii')
+                    number = client.recv(1024)
+
+                    if number is False or number is None:
+                        opponent.send('invalid_opponent'.encode('ascii'))
+                        break
+
+                    opponent = opponent_valid(client)
+                    if not isinstance(opponent, socket.socket):
+                        client.send('invalid_opponent'.encode('ascii'))
+                        clients[client]['state'] = 4
+                        break
+
+                    opponent_info = session_info[opponent]
+
+                    try:
+                        number = number.decode('ascii')
+                    except UnicodeDecodeError:
+                        client.send('invalid_characters'.encode('ascii'))
+                        continue
 
                     if not number or not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
-                        client.send('invalid'.encode('ascii'))
+                        client.send('invalid_code'.encode('ascii'))
                         continue
-                    client.send('valid'.encode('ascii'))
+                    client.send('valid_guess'.encode('ascii'))
 
                     bull, cow = 0, 0
                     opponent_number = opponent_info['code']
@@ -165,8 +225,8 @@ def handle(client):
                         elif digit in opponent_number:
                             cow += 1
 
-                    client.send(f"{number} | {bull} Bull | {cow} Cow".encode('ascii'))
-                    opponent.send(f"{number} | {bull} Bull | {cow} Cow".encode('ascii'))
+                    client.send(f"You: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
+                    opponent.send(f"{clients[client]['nickname']}: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
 
                     if bull == 4:
                         clients[client]['state'] = 4
@@ -177,11 +237,17 @@ def handle(client):
                         del session_info[opponent]
                         del session_info[client]
                         break
+                    else:
+                        client.send('wait'.encode('ascii'))
+                        opponent.send('guess'.encode('ascii'))
 
                     session_info[client]['guessing'] = False
                     session_info[opponent]['guessing'] = True
         elif clients[client]['state'] == 4:  # После итога матча
-            msg = client.recv(1024).decode('ascii')
+            try:
+                msg = client.recv(1024).decode('ascii')
+            except ConnectionAbortedError:
+                return
             if not msg:
                 break
             if msg == 'search':
@@ -189,7 +255,7 @@ def handle(client):
                 free_players.append(client)
 
 
-def receive():
+def serve():
     while True:
         client, address = server.accept()
         print("Connected with {}".format(str(address)))
@@ -198,5 +264,5 @@ def receive():
         thread.start()
 
 
-os.system('clear')
-receive()
+if __name__ == '__main__':
+    serve()
