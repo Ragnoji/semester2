@@ -7,7 +7,7 @@ from random import shuffle
 
 searching_lock = threading.Lock()
 client_init_lock = threading.Lock()
-code_lock = threading.Lock()
+code_lock = threading.RLock()
 wait_lock = threading.Lock()
 game_lock = threading.Lock()
 
@@ -31,17 +31,20 @@ def handle(client):
             clients[cl]['state'] = 4
             del session_info[cl]
             del session_info[op]
-            del clients[op]
-            free_players.append(cl)
             return False
         return op
 
+    conn_exceptions = (ConnectionRefusedError, ConnectionAbortedError, ConnectionResetError)
+
     while True:
+        if client.fileno() == -1:
+            return
+
         if client not in clients:  # Клиент не аутентифицирован
             try:
                 nickname = client.recv(1024)
-            except ConnectionAbortedError:
-                print('Connection aborted')
+            except conn_exceptions:
+                print('Connection torn apart')
                 client.close()
                 return
 
@@ -50,8 +53,8 @@ def handle(client):
             except UnicodeDecodeError:
                 try:
                     client.send('invalid_characters'.encode('ascii'))
-                except ConnectionRefusedError:
-                    print('Connection refused')
+                except conn_exceptions:
+                    print('Connection torn apart')
                     client.close()
                     return
                 continue
@@ -59,24 +62,27 @@ def handle(client):
             if len(nickname) == 0:
                 try:
                     client.send('invalid_empty'.encode('ascii'))
-                except ConnectionRefusedError:
-                    print('Connection refused')
+                except conn_exceptions:
+                    print('Connection torn apart')
+                    client.close()
                     return
                 continue
 
             with client_init_lock:
                 if nickname in [c['nickname'] for c in clients.values()]:
                     try:
-                        client.send('invalid_taken')
-                    except ConnectionRefusedError:
-                        print('Connection refused')
+                        client.send('invalid_taken'.encode('ascii'))
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
                         return
                     continue
                 clients[client] = {'nickname': nickname, 'state': 4}
             try:
-                client.send('valid_nickname'.encode('ascii'))
-            except ConnectionRefusedError:
-                print('Connection refused')
+                client.send(f'valid_nickname {nickname}'.encode('ascii'))
+            except conn_exceptions:
+                print('Connection torn apart')
+                client.close()
                 del clients[client]
                 return
 
@@ -86,12 +92,12 @@ def handle(client):
             while True:
                 sleep(1)
                 with searching_lock:
-                    if client.fileno == -1 or clients[client]['state'] != 0:
+                    if client.fileno() == -1 or clients[client]['state'] != 0:
                         break
 
                     for opponent in free_players:  # Подбор свободного соперника
                         if opponent != client:
-                            if opponent.fileno == -1:
+                            if opponent.fileno() == -1:
                                 free_players.remove(opponent)
                                 del clients[opponent]
                                 continue
@@ -105,29 +111,42 @@ def handle(client):
                             clients[opponent]['state'] = 1
 
                             try:
-                                client.send('game'.encode('ascii'))
-                            except ConnectionRefusedError:
+                                client.send(f"game {clients[opponent]['nickname']}".encode('ascii'))
+                            except conn_exceptions:
+                                client.close()
                                 print('Connection refused cln')
-                            try:
-                                opponent.send('game'.encode('ascii'))
-                            except ConnectionRefusedError:
-                                print('Connection refused opp')
 
-                            client.send(clients[opponent]['nickname'].encode('ascii'))
-                            opponent.send(clients[client]['nickname'].encode('ascii'))
+                            try:
+                                opponent.send(f"game {clients[client]['nickname']}".encode('ascii'))
+                            except conn_exceptions:
+                                opponent.close()
+                                print('Connection refused opp')
                             break
 
-        if clients[client]['state'] == 1:  # Загадывание числа
+        elif clients[client]['state'] == 1:  # Загадывание числа
             while True:
                 with code_lock:
-                    if client.fileno == -1 or clients[client]['state'] != 1:
+                    if client.fileno() == -1:
+                        del clients[client]
+                        break
+                    if clients[client]['state'] != 1:
                         break
 
-                    number = client.recv(1024)
+                    try:
+                        number = client.recv(1024)
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        continue
 
                     opponent = opponent_valid(client)
                     if not isinstance(opponent, socket.socket):
-                        client.send('invalid_opponent'.encode('ascii'))
+                        try:
+                            client.send('invalid_opponent'.encode('ascii'))
+                        except conn_exceptions:
+                            print('Connection torn apart')
+                            client.close()
+                            return
                         clients[client]['state'] = 4
                         break
 
@@ -136,31 +155,54 @@ def handle(client):
                     try:
                         number = number.decode('ascii')
                     except UnicodeDecodeError:
-                        client.send('invalid_characters'.encode('ascii'))
+                        try:
+                            client.send('invalid_characters'.encode('ascii'))
+                        except conn_exceptions:
+                            print('Connection torn apart')
+                            client.close()
+                            return
                         continue
 
                     if not number:
-                        client.send('invalid_length'.encode('ascii'))
+                        try:
+                            client.send('invalid_length'.encode('ascii'))
+                        except conn_exceptions:
+                            print('Connection torn apart')
+                            client.close()
+                            return
                         continue
 
                     if not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
-                        client.send('invalid_code'.encode('ascii'))
+                        try:
+                            client.send('invalid_code'.encode('ascii'))
+                        except conn_exceptions:
+                            print('Connection torn apart')
+                            client.close()
+                            return
                         continue
 
-                    client.send('valid_wish'.encode('ascii'))
+                    try:
+                        client.send(f'valid_wish {number}'.encode('ascii'))
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        return
 
                     session_info[client]['code'] = number
                     clients[client]['state'] = 2
 
-        if clients[client]['state'] == 2:  # Ожидание загадывания числа от опонента и определение первого угадывающего
+        elif clients[client]['state'] == 2:  # Ожидание загадывания числа от опонента и определение первого угадывающего
             while True:
                 with wait_lock:
-                    if client.fileno == -1 or clients[client]['state'] != 2:
+                    if client.fileno() == -1 or clients[client]['state'] != 2:
                         break
 
                     opponent = opponent_valid(client)
                     if not isinstance(opponent, socket.socket):
-                        client.send('invalid_opponent'.encode('ascii'))
+                        try:
+                            client.send('invalid_opponent'.encode('ascii'))
+                        except conn_exceptions:
+                            del clients[client]
                         clients[client]['state'] = 4
                         break
 
@@ -177,13 +219,35 @@ def handle(client):
                             clients[client]['state'] = 3
                             clients[opponent]['state'] = 3
 
-                            order[0].send('first'.encode('ascii'))
-                            order[1].send('second'.encode('ascii'))
+                            try:
+                                order[0].send('first'.encode('ascii'))
+                            except conn_exceptions:
+                                order[0].close()
+                                try:
+                                    order[1].send('invalid_opponent'.encode('ascii'))
+                                except conn_exceptions:
+                                    order[1].close()
+                                    print('both conn torn apart')
+                                    return
+                                print('first conn torn apart')
+                                continue
+                            try:
+                                order[1].send('second'.encode('ascii'))
+                            except conn_exceptions:
+                                order[1].close()
+                                try:
+                                    order[0].recv(1024)
+                                    order[0].send('invalid_opponent'.encode('ascii'))
+                                except conn_exceptions:
+                                    order[0].close()
+                                    print('both conn torn apart')
+                                    return
+                                print('second conn torn apart')
                         break
         elif clients[client]['state'] == 3:  # Игра началась
             while True:
                 with game_lock:
-                    if client.fileno == -1 or clients[client]['state'] != 3:
+                    if client.fileno() == -1 or clients[client]['state'] != 3:
                         break
 
                     client_info = session_info[client]
@@ -191,15 +255,26 @@ def handle(client):
                     if not client_info['guessing']:
                         continue
 
-                    number = client.recv(1024)
-
-                    if number is False or number is None:
-                        opponent.send('invalid_opponent'.encode('ascii'))
-                        break
+                    try:
+                        number = client.recv(1024)
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        try:
+                            opponent.send('invalid_opponent'.encode('ascii'))
+                        except conn_exceptions:
+                            print('Connection torn apart')
+                            opponent.close()
+                        continue
 
                     opponent = opponent_valid(client)
                     if not isinstance(opponent, socket.socket):
-                        client.send('invalid_opponent'.encode('ascii'))
+                        try:
+                            client.send('invalid_opponent'.encode('ascii'))
+                        except conn_exceptions:
+                            client.close()
+                            print('Connection torn apart')
+                            continue
                         clients[client]['state'] = 4
                         break
 
@@ -208,13 +283,27 @@ def handle(client):
                     try:
                         number = number.decode('ascii')
                     except UnicodeDecodeError:
-                        client.send('invalid_characters'.encode('ascii'))
+                        try:
+                            client.send('invalid_characters'.encode('ascii'))
+                        except conn_exceptions:
+                            client.close()
+                            print('Connection torn apart')
                         continue
 
                     if not number or not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
-                        client.send('invalid_code'.encode('ascii'))
+                        try:
+                            client.send('invalid_code'.encode('ascii'))
+                        except conn_exceptions:
+                            client.close()
+                            print('Connection torn apart')
                         continue
-                    client.send('valid_guess'.encode('ascii'))
+
+                    # try:
+                    #     client.send('valid_guess'.encode('ascii'))
+                    # except conn_exceptions:
+                    #     client.close()
+                    #     print('Connection torn apart')
+                    #     continue
 
                     bull, cow = 0, 0
                     opponent_number = opponent_info['code']
@@ -225,28 +314,75 @@ def handle(client):
                         elif digit in opponent_number:
                             cow += 1
 
-                    client.send(f"You: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
-                    opponent.send(f"{clients[client]['nickname']}: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
+                    try:
+                        client.send(f"You: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
+                    except conn_exceptions:
+                        client.close()
+                        try:
+                            opponent.send('invalid_opponent'.encode('ascii'))
+                            clients[opponent]['state'] = 4
+                        except conn_exceptions:
+                            print('Both conn torn apart')
+                            opponent.close()
+                            return
+                        print('client conn torn apart')
+                        continue
+                    try:
+                        opponent.send(f"{clients[client]['nickname']}: {number} | {bull} Bull | {cow} Cow".encode('ascii'))
+                    except conn_exceptions:
+                        opponent.close()
+                        try:
+                            client.send('invalid_opponent'.encode('ascii'))
+                            clients[client]['state'] = 4
+                        except conn_exceptions:
+                            print('Both conn torn apart')
+                            opponent.close()
+                            return
+                        print('opponent conn torn apart')
+                        continue
 
                     if bull == 4:
                         clients[client]['state'] = 4
-                        client.send('win'.encode('ascii'))
+                        try:
+                            client.send('win'.encode('ascii'))
+                        except conn_exceptions:
+                            client.close()
                         clients[opponent]['state'] = 4
-                        opponent.send('lose'.encode('ascii'))
-                        opponent.send(client_info['code'].encode('ascii'))
+                        try:
+                            opponent.send(f"lose {client_info['code']}".encode('ascii'))
+                        except conn_exceptions:
+                            opponent.close()
                         del session_info[opponent]
                         del session_info[client]
                         break
                     else:
-                        client.send('wait'.encode('ascii'))
-                        opponent.send('guess'.encode('ascii'))
+                        try:
+                            client.send('wait'.encode('ascii'))
+                        except conn_exceptions:
+                            client.close()
+                            try:
+                                opponent.send('invalid_opponent'.encode('ascii'))
+                            except conn_exceptions:
+                                opponent.close()
+                            break
+                        try:
+                            opponent.send('guess'.encode('ascii'))
+                        except conn_exceptions:
+                            opponent.close()
+                            try:
+                                client.send('invalid_opponent'.encode('ascii'))
+                            except conn_exceptions:
+                                client.close()
+                            break
 
                     session_info[client]['guessing'] = False
                     session_info[opponent]['guessing'] = True
         elif clients[client]['state'] == 4:  # После итога матча
             try:
                 msg = client.recv(1024).decode('ascii')
-            except ConnectionAbortedError:
+            except conn_exceptions:
+                client.close()
+                del clients[client]
                 return
             if not msg:
                 break
