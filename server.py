@@ -11,7 +11,7 @@ code_lock = threading.RLock()
 wait_lock = threading.Lock()
 game_lock = threading.Lock()
 
-host = '127.0.0.1'
+host = '192.168.0.23'
 port = 5060
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -125,71 +125,70 @@ def handle(client):
 
         elif clients[client]['state'] == 1:  # Загадывание числа
             while True:
-                with code_lock:
-                    if client.fileno() == -1:
-                        del clients[client]
-                        break
-                    if clients[client]['state'] != 1:
-                        break
+                if client.fileno() == -1:
+                    del clients[client]
+                    break
+                if clients[client]['state'] != 1:
+                    break
 
+                try:
+                    number = client.recv(1024)
+                except conn_exceptions:
+                    print('Connection torn apart')
+                    client.close()
+                    continue
+
+                opponent = opponent_valid(client)
+                if not isinstance(opponent, socket.socket):
                     try:
-                        number = client.recv(1024)
-                    except conn_exceptions:
-                        print('Connection torn apart')
-                        client.close()
-                        continue
-
-                    opponent = opponent_valid(client)
-                    if not isinstance(opponent, socket.socket):
-                        try:
-                            client.send('invalid_opponent'.encode('ascii'))
-                        except conn_exceptions:
-                            print('Connection torn apart')
-                            client.close()
-                            return
-                        clients[client]['state'] = 4
-                        break
-
-                    if number is False or number is None:
-                        break
-                    try:
-                        number = number.decode('ascii')
-                    except UnicodeDecodeError:
-                        try:
-                            client.send('invalid_characters'.encode('ascii'))
-                        except conn_exceptions:
-                            print('Connection torn apart')
-                            client.close()
-                            return
-                        continue
-
-                    if not number:
-                        try:
-                            client.send('invalid_length'.encode('ascii'))
-                        except conn_exceptions:
-                            print('Connection torn apart')
-                            client.close()
-                            return
-                        continue
-
-                    if not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
-                        try:
-                            client.send('invalid_code'.encode('ascii'))
-                        except conn_exceptions:
-                            print('Connection torn apart')
-                            client.close()
-                            return
-                        continue
-
-                    try:
-                        client.send(f'valid_wish {number}'.encode('ascii'))
+                        client.send('invalid_opponent'.encode('ascii'))
                     except conn_exceptions:
                         print('Connection torn apart')
                         client.close()
                         return
+                    clients[client]['state'] = 4
+                    break
 
-                    session_info[client]['code'] = number
-                    clients[client]['state'] = 2
+                if number is False or number is None:
+                    break
+                try:
+                    number = number.decode('ascii')
+                except UnicodeDecodeError:
+                    try:
+                        client.send('invalid_characters'.encode('ascii'))
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        return
+                    continue
+
+                if not number:
+                    try:
+                        client.send('invalid_length'.encode('ascii'))
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        return
+                    continue
+
+                if not re.match(r'^(?!.*(.).*\1)\d{4}$', number):
+                    try:
+                        client.send('invalid_code'.encode('ascii'))
+                    except conn_exceptions:
+                        print('Connection torn apart')
+                        client.close()
+                        return
+                    continue
+
+                try:
+                    client.send(f'valid_wish {number}'.encode('ascii'))
+                except conn_exceptions:
+                    print('Connection torn apart')
+                    client.close()
+                    return
+
+                session_info[client]['code'] = number
+                clients[client]['state'] = 2
 
         elif clients[client]['state'] == 2:  # Ожидание загадывания числа от опонента и определение первого угадывающего
             while True:

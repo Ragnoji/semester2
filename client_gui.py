@@ -14,7 +14,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect(('127.0.0.1', 5060))
+        self.client.connect(('93.157.248.152', 5060))
         self.reciever = threading.Thread(target=self.recieve)
         self.reciever.start()
 
@@ -56,13 +56,13 @@ class MainWidget(QMainWindow, Ui_MainWindow):
     def recieve(self):
         while True:
             resp = self.client.recv(1024).decode('ascii')
-            self.input_button.setEnabled(True)
 
             if resp == 'invalid_opponent':
                 self.last_response.setText('Opponent left match')
                 self.logs.append(f"Opponent left match, you technically won!")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.main_label.setText("Search game when you're ready")
                 continue
@@ -91,6 +91,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.main_label.setText(f'Now you can search for game')
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.input.setMaxLength(4)
                 self.input.setValidator(QIntValidator())
@@ -101,6 +102,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.logs.append(f"You: have made a code {code}")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.main_label.setText('Waiting for opponent to make code')
                 continue
             if resp == 'first':
@@ -108,6 +110,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.logs.append(f"You're first to guess")
                 self.input.clear()
                 self.input.setEnabled(True)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(False)
                 self.main_label.setText("Your time to make a guess")
                 continue
@@ -116,12 +119,14 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.logs.append(f"{self.opponent_nick} is first to guess")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(False)
                 self.main_label.setText(f"Wait for {self.opponent_nick}'s guess")
                 continue
             if resp.split()[0] == 'game':
                 self.last_response.setText("Game was found")
                 self.input.setEnabled(True)
+                self.input_button.setEnabled(False)
                 self.opponent_nick = resp.split()[1]
                 self.main_label.setText(f"Make your code")
                 self.logs.append(f'Initialized game between you({self.nickname}) and {self.opponent_nick}')
@@ -132,6 +137,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.logs.append(f"{self.opponent_nick} won")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.main_label.setText("You lost :( Search game when you're ready")
                 continue
@@ -145,6 +151,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.logs.append(f"You guessed opponents' code first!")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.main_label.setText("You won :) Search game when you're ready")
                 continue
@@ -152,6 +159,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.last_response.setText(f"Waiting for {self.opponent_nick}'s guess")
                 self.input.clear()
                 self.input.setEnabled(False)
+                self.input_button.setEnabled(False)
                 self.main_label.setText(f"Wait for {self.opponent_nick}'s guess")
                 continue
             self.logs.append(resp)
