@@ -14,7 +14,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect(('93.157.248.152', 5060))
+        self.client.connect(('192.168.115.39', 5060))
         self.reciever = threading.Thread(target=self.recieve)
         self.reciever.start()
 
@@ -30,7 +30,6 @@ class MainWidget(QMainWindow, Ui_MainWindow):
 
     def send(self):
         message = self.input.text()
-
         try:
             message.encode('ascii')
         except UnicodeEncodeError:
@@ -56,9 +55,17 @@ class MainWidget(QMainWindow, Ui_MainWindow):
         self.main_label.setText('Searching..')
         self.last_response.setText('Started search')
 
+    def closeEvent(self, event):
+        self.client.close()
+        event.accept()
+
     def recieve(self):
+        conn_exceptions = (ConnectionRefusedError, ConnectionAbortedError, ConnectionResetError)
         while True:
-            resp = self.client.recv(1024).decode('ascii')
+            try:
+                resp = self.client.recv(1024).decode('ascii')
+            except conn_exceptions:
+                return
 
             if resp == 'invalid_opponent':
                 self.last_response.setText('Opponent left match')
@@ -158,6 +165,8 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.input.setEnabled(False)
                 self.input_button.setEnabled(False)
                 self.main_label.setText(f"Wait for {self.opponent_nick}'s guess")
+                continue
+            if resp == '?':
                 continue
             self.logs.append(resp)
 
