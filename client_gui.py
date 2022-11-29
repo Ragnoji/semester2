@@ -1,4 +1,4 @@
-from PyQt6.QtGui import QIntValidator
+from PyQt6.QtGui import QIntValidator, QTextCursor
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 import re
@@ -14,7 +14,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect(('192.168.115.39', 5060))
+        self.client.connect(('10.17.76.231', 5060))
         self.reciever = threading.Thread(target=self.recieve)
         self.reciever.start()
 

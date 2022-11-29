@@ -66,7 +66,7 @@ class Ui_MainWindow(object):
         self.input.setEnabled(True)
         self.input.setGeometry(QtCore.QRect(9, 161, 183, 40))
         self.input.setStyleSheet(":enabled {background-color:#eee;border:2px solid #c68d89;}\n"
-":disabled {background-color:#ddd;border:2px solid #c68d89;}")
+":disabled {background-color:#ddd;bo0der:2px solid #c68d89;}")
         self.input.setObjectName("input")
         self.input_button = QtWidgets.QPushButton(self.centralwidget)
         self.input_button.setEnabled(False)
@@ -84,7 +84,14 @@ class Ui_MainWindow(object):
         font.setFamily("Roboto Medium")
         font.setPointSize(13)
         self.last_response.setFont(font)
-        self.last_response.setStyleSheet("color:#f3f3f3;background-color:#edb6b2")
+        self.last_response.setStyleSheet("QLabel[color=\"0\"]{\n"
+"color:#f3f3f3;\n"
+"background-color:#edb6b2;\n"
+"}\n"
+"QLabel[color=\"1\"]{\n"
+"color:#f3f3f3;\n"
+"background-color:#43c24f\n"
+"}")
         self.last_response.setTextFormat(QtCore.Qt.TextFormat.AutoText)
         self.last_response.setScaledContents(False)
         self.last_response.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -167,6 +174,7 @@ class Ui_MainWindow(object):
         self.log_label_2.setText(_translate("MainWindow", "Message"))
         self.input_button.setText(_translate("MainWindow", "OK"))
         self.last_response.setText(_translate("MainWindow", "Last action"))
+        self.last_response.setProperty("color", _translate("MainWindow", "0"))
         self.search_button.setText(_translate("MainWindow", "Search game"))
         self.label.setText(_translate("MainWindow", "You"))
         self.logs.setHtml(_translate("MainWindow", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"

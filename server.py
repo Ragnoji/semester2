@@ -11,7 +11,7 @@ code_lock = threading.RLock()
 wait_lock = threading.Lock()
 game_lock = threading.Lock()
 
-host = '192.168.115.39'
+host = '10.17.76.231'
 port = 5060
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

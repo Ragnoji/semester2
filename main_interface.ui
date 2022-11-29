@@ -147,7 +147,7 @@
     </property>
     <property name="styleSheet">
      <string notr="true">:enabled {background-color:#eee;border:2px solid #c68d89;}
-:disabled {background-color:#ddd;border:2px solid #c68d89;}</string>
+:disabled {background-color:#ddd;bo0der:2px solid #c68d89;}</string>
     </property>
    </widget>
    <widget class="QPushButton" name="input_button">
@@ -192,7 +192,14 @@ QPushButton:disabled {background:#d6928d; color:#ddd }</string>
      </font>
     </property>
     <property name="styleSheet">
-     <string notr="true">color:#f3f3f3;background-color:#edb6b2</string>
+     <string notr="true">QLabel[color=&quot;0&quot;]{
+color:#f3f3f3;
+background-color:#edb6b2;
+}
+QLabel[color=&quot;1&quot;]{
+color:#f3f3f3;
+background-color:#43c24f
+}</string>
     </property>
     <property name="text">
      <string>Last action</string>
@@ -205,6 +212,9 @@ QPushButton:disabled {background:#d6928d; color:#ddd }</string>
     </property>
     <property name="alignment">
      <set>Qt::AlignCenter</set>
+    </property>
+    <property name="color" stdset="0">
+     <string>0</string>
     </property>
    </widget>
    <widget class="QPushButton" name="search_button">
