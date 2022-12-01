@@ -14,7 +14,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect(('10.17.76.231', 5060))
+        self.client.connect(('localhost', 5060))
         self.reciever = threading.Thread(target=self.recieve)
         self.reciever.start()
 
@@ -134,6 +134,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.input_button.setEnabled(False)
                 self.opponent_nick = resp.split()[1]
                 self.main_label.setText(f"{self.nickname}(you) vs {self.opponent_nick}")
+                self.last_response.setProperty("color", "0")
                 continue
             if resp.split()[0] == 'lose':
                 code = resp.split()[1]
@@ -144,11 +145,13 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.main_label.setText("You lost :( Search game when you're ready")
+                self.last_response.setProperty("color", "0")
                 continue
             if resp == 'guess':
                 self.last_response.setText("Your turn to guess")
                 self.input.setEnabled(True)
                 self.main_label.setText("Waiting for your guess")
+                self.last_response.setProperty("color", "1")
                 continue
             if resp == 'win':
                 self.last_response.setText('You won this session!')
@@ -158,6 +161,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.input_button.setEnabled(False)
                 self.search_button.setEnabled(True)
                 self.main_label.setText("You won :) Search game when you're ready")
+                self.last_response.setProperty("color", "0")
                 continue
             if resp == 'wait':
                 self.last_response.setText(f"Waiting for {self.opponent_nick}'s guess")
@@ -165,6 +169,7 @@ class MainWidget(QMainWindow, Ui_MainWindow):
                 self.input.setEnabled(False)
                 self.input_button.setEnabled(False)
                 self.main_label.setText(f"Wait for {self.opponent_nick}'s guess")
+                self.last_response.setProperty("color", "0")
                 continue
             if resp == '?':
                 continue

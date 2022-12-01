@@ -11,7 +11,7 @@ code_lock = threading.RLock()
 wait_lock = threading.Lock()
 game_lock = threading.Lock()
 
-host = '10.17.76.231'
+host = 'localhost'
 port = 5060
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -97,6 +97,7 @@ def handle(client):
             while True:
                 sleep(1)
                 with searching_lock:
+                    print(free_players)
 
                     if client.fileno() == -1:
                         break
@@ -121,6 +122,7 @@ def handle(client):
                             except conn_exceptions:
                                 client.close()
                                 print('Connection refused cln')
+                                break
 
                             try:
                                 opponent.send(f"game {clients[client]['nickname']}".encode('ascii'))
@@ -259,35 +261,35 @@ def handle(client):
                         break
         elif clients[client]['state'] == 3:  # Игра началась
             while True:
+                opponent = opponent_valid(client)
+                try:
+                    number = client.recv(1024)
+                except conn_exceptions:
+                    print('Connection torn apart')
+                    client.close()
+                    opponent.send('invalid_opponent'.encode('ascii'))
+                    return
+                print(number.decode('ascii'), 3)
+                if number.decode('ascii') == 'search':
+                    clients[client]['state'] = 0
+                    with searching_lock:
+                        free_players.append(client)
+                    break
+                if client.fileno() == -1:
+                    break
+                if clients[client]['state'] != 3:
+                    break
+
+                client_info = session_info[client]
+                if not client_info['guessing']:
+                    continue
+
+                opponent = opponent_valid(client)
+                if not isinstance(opponent, socket.socket):
+                    clients[client]['state'] = 4
+                    break
+
                 with game_lock:
-                    if client.fileno() == -1 or clients[client]['state'] != 3:
-                        break
-
-                    client_info = session_info[client]
-
-                    opponent = opponent_valid(client)
-                    if not isinstance(opponent, socket.socket):
-                        try:
-                            client.send('invalid_opponent'.encode('ascii'))
-                        except conn_exceptions:
-                            del clients[client]
-                            client.close()
-                            print('Connection torn apart')
-                            continue
-                        clients[client]['state'] = 4
-                        break
-
-                    if not client_info['guessing']:
-                        continue
-
-                    try:
-                        number = client.recv(1024)
-                    except conn_exceptions:
-                        del clients[client]
-                        print('Connection torn apart')
-                        client.close()
-                        continue
-
                     opponent_info = session_info[opponent]
 
                     try:
@@ -384,11 +386,13 @@ def handle(client):
                 print('Connection torn apart')
                 del clients[client]
                 return
+            print(msg, 4)
             if not msg:
                 break
             if msg == 'search':
                 clients[client]['state'] = 0
-                free_players.append(client)
+                with searching_lock:
+                    free_players.append(client)
 
 
 def serve():
